@@ -9,11 +9,10 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## R baseline 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+En esta presetación realizaré el ejercico propuesto analizando el dataframe Babynames que contiene, agrupado por nombre y sexo, la cantidad de nacimientos en Estado Unidos por año desde 1880 hasta 2017.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r echo = FALSE, include = FALSE}
 
@@ -34,39 +33,41 @@ library(odbc)
 #install.packages("tidytuesdayR")
 # Either ISO-8601 date or year/week works!
 
-#tuesdata <- tidytuesdayR::tt_load('2022-03-22')
-#tuesdata <- tidytuesdayR::tt_load(2022, week = 12)
+tuesdata <- tidytuesdayR::tt_load('2022-03-22')
+tuesdata <- tidytuesdayR::tt_load(2022, week = 12)
 
-#babynames <- tuesdata$babynames
+babynames <- tuesdata$babynames
+
+
+
 
 ```
 
-## Pequeño anailisi sobre el dataframte elegido 
-
-
+### Pequeño analisis sobre el dataframte 
 
 
 ```{r}
 babynames %>% head(10)
 
 ```
-
+Control valores Na
 ```{r}
 # control de Na
 babynames %>% summarise_all(~ sum(is.na(.)))
 
 ```
 
+Analisis columnas
 
 ```{r }
+ 
 
-# Analisis columnas 
 babynames %>%  summary(.)
 
 ```
 
+Analisis de columnas tipo texto 
 
-###+- analisis de columnas tipo texto 
 ```{r}
 babynames %>%
   select_if(is.character) %>%
@@ -83,21 +84,23 @@ babynames %>%
 
 
 ```
+<br>
 
-## Including Plots
+### Preguntas
 
 Ya habiendo realizado un sucinto analisis sobre las caracteristicas principales del dataframe babynames, me propongo contestar las siguentes preguntas:  
 
-1) Sin distinguir por sexo, cúal es el nombre con mayor peso proporcional al comienzo (1880) y al final(2017) de la serie ? 
-  Cómo evolucionaron esos nombres a lo largo del tiempo?  
+1) Sin distinguir por sexo, cúal es el nombre con mayor peso proporcional al comienzo (1880) y al final (2017) de la serie ? Cómo evolucionaron a lo largo del tiempo?  
 
 2) Cómo evoluionó a lo largo del tiempo la cantidad de nombres únicos utilizados por año?
 
-3) Si agrupamos los nombres en relación a si son utilizados de manera exclusiva por un sexo o no,cúal es el peso de proporcional de los nombres mixtos? cómo es su evolución a lo largo del tiempo? 
+3) Si agrupamos los nombres en relación a si son utilizados de manera exclusiva por un sexo o no, cúal es el peso proporcional de los nombres mixtos? cómo es su evolución a lo largo del tiempo? 
+
+Para contestar las preguntas voy a crear una tabla temporal en sql server y desde ahí voy producir las agregaciones necesarias. 
 
 
-
-```{r  results = "hide"}
+```{r results = "hide"}
+# Contrucción de tabla temporal 
 
 
 table_name <- '#Baby_Names'
@@ -123,14 +126,16 @@ dbWriteTable(con, table_name, value = babynames, temporary = TRUE, overwrite = T
 ```
 
 
-```{r  results = "hide"}
+```{r  = "hide"}
+#Query de prueba 
 dbGetQuery(con, paste("select top 10 * from ",table_name,"order by n desc"))
 
 ```
 
-```{echo = TRUE, results = "hide"}
+### Pregunta 1 
+```{r echo = TRUE, results = "hide"}
 
-Respuesta_1 <- 
+respuesta_1 <- 
             dbGetQuery(con,
                          
                           " with total_anio as (
@@ -170,29 +175,55 @@ Respuesta_1 <-
             
 
 ```
-
-```{r respuesta_1, echo=FALSE}
+<br>
+```{r echo=FALSE}
 
           
 
-Respuesta_1 %>% 
+nombre_popu_principo <-  respuesta_1  %>%
+                         filter(year == min(year))%>% 
+                         filter(prop == max(prop))%>% 
+                         pull(name) 
+
+nombre_popu_final <-  respuesta_1 %>%
+                        filter(year == max(year)) %>% 
+                        filter(prop == max(prop)) %>% 
+                        pull(name) 
+
+
+porcentaje_principio <- respuesta_1  %>%
+                        filter(name == nombre_popu_principo & year == min(year)) %>% 
+                        pull(prop)
+                        
+  
+porcentaje_final <- respuesta_1  %>%
+                      filter(name == nombre_popu_final & year == max(year)) %>% 
+                      pull(prop) 
+
+respuesta_1 %>% 
   ggplot(aes(x = year, y = prop, group = name, color = name)) +
   geom_line(size = 1) +  
   ggtitle("Evolución del peso porcentual de nombres preponderantes") +
   labs(
       x = "Año",
       y = "Proporción por Nombre",
-      subtitle = "Utilzando como ejemplo el nombre más popular de cada extremo de la serie: de 1880 a 2017 "
+      subtitle = "Utilizando como ejemplo el nombre más popular de cada extremo de la serie: de 1880 a 2017 ",
+      color = "Nombre"
       ) +
   scale_color_brewer(palette = "Set2") +
   theme_minimal() +
   theme(legend.position = "bottom") +
-  scale_x_continuous(breaks = seq(min(Respuesta_1$year), max(Respuesta_1$year), by = 10), expand = c(0, 0))
+  scale_x_continuous(breaks = seq(min(respuesta_1$year), max(respuesta_1$year), by = 10), expand = c(0, 0))
 ```
 
-```{echo = TRUE, results = "hide"}
+El nombre más popular del primer año de la serie fue `r nombre_popu_principo` con un peso porcentual de `r porcentaje_principio`, a su vez el nombre más 
+popular en el último año de la serie fue `r nombre_popu_final` con un peso porcentual de `r porcentaje_final`.
+<br>
 
-Respuesta_2 <- 
+### Pregunta 2 
+```{r echo = TRUE, results = "hide"}
+
+respuesta_2 <- 
               dbGetQuery(con, 
                          " with cantidad_Nombre as (
                                               
@@ -210,34 +241,65 @@ Respuesta_2 <-
                            from cantidad_Nombre; "
               
                         )
+
+
             
 
 ```
+<br>
+```{r  echo=FALSE}
 
-```{r respuesta_2, echo=FALSE}
+primer_anio <- respuesta_2 %>%  
+                filter(year == min(year)) %>% 
+                pull(year)
+
+ultimo_anio <- respuesta_2 %>%  
+                filter(year == max(year)) %>% 
+                pull(year)
+
+
+primer_anio_n <- respuesta_2 %>%  
+                      filter(year == min(year)) %>% 
+                      pull(Dist_Name_Nu )
+
+
+ultimo_anio_n <- respuesta_2 %>%  
+                  filter(year == max(year)) %>% 
+                  pull(Dist_Name_Nu)
+
+diferencia_porcentual <- ((ultimo_anio_n - primer_anio_n )/ primer_anio_n ) * 100
+
+diferencia_porcentual_2 <- paste(round(diferencia_porcentual,2),'%')
 
           
-Respuesta_2 %>% 
+respuesta_2 %>% 
 pivot_longer(cols = c(Dist_Name_Nu, Promedio_Decada),
             names_to = "variable",
             values_to = "value") %>% 
   ggplot(aes(x = year, y = value, color = variable)) +
   geom_line(size = 1) + 
-  ggtitle("Gráfico de Líneas: Dist_Name_Nu vs Promedio_Lustro") +
+  ggtitle("Evolución de la cantidad de nombres únicos utilizados por año") +
   labs(
     x = "Año",
-    y = "Valor", 
+    y = "Cantidad de nombres", 
+    subtitle = "suavizado por el promedio movil de cantidad de nombre únicos por década",
     color = "Variable"
     ) +
   scale_color_brewer(palette = "Set2") + 
   theme_minimal() +
   theme(legend.position = "bottom") +
-  scale_x_continuous(breaks = seq(min(Respuesta_2$year), max(Respuesta_2$year), by = 10), expand = c(0, 0))
+  scale_x_continuous(breaks = seq(min(respuesta_2$year), max(respuesta_2$year), by = 10), expand = c(0, 0))
 ```
 
-```{echo = TRUE, results = "hide"}
+La cantidad de nombres únicos en el año `r primer_anio` fue de `r primer_anio_n`.En comparación, en el año `r ultimo_anio` fueron `r ultimo_anio_n`,lo que implica un aumento del `r diferencia_porcentual_2`.
 
-Respuesta_3 <- 
+<br>
+
+
+### Pregunta 3
+```{r echo = TRUE, results = "hide"}
+
+respuesta_3 <- 
   dbGetQuery(con,   
                   " with t1 as (
                   
@@ -285,13 +347,36 @@ Respuesta_3 <-
   )
 
 ```
+<br>
+```{r echo=FALSE}
 
-```{r respuesta_3, echo=FALSE}
+anio_mayor_prop <- respuesta_3%>%
+                    filter(Tipo_nombre == 'Mixto') %>% 
+                    filter(prop == max(prop))%>% 
+                    pull(year)
 
-Respuesta_3 %>%           
+mayor_prop <-  respuesta_3  %>%
+                filter(Tipo_nombre == 'Mixto') %>% 
+                summarise(prop = max(prop)) %>% 
+                pull(prop)
+                    
+                    
+promedio_prop <-  respuesta_3  %>%
+                    filter(Tipo_nombre == 'Mixto') %>% 
+                    summarise(promedio = mean(prop)) %>% 
+                    pull(promedio)
+                    
+prop_ultimo_anio <-  respuesta_3  %>%
+                      filter(Tipo_nombre == 'Mixto' & year == max(year))%>% 
+                      pull(prop)                   
+                    
+                    
+
+
+respuesta_3 %>%           
   ggplot(aes(x = year, y = prop, fill = Tipo_nombre)) +
   geom_area(alpha = 0.7, color = "black") +
-  ggtitle("Evolución de Proporciones por Tipo de Nombre a lo largo del tiempo") +  
+  ggtitle("Evolución del peso porcentual de Tipo de Nombre a lo largo del tiempo") +  
   labs(
     x = "Año",
     y = "Proporción", 
@@ -300,7 +385,11 @@ Respuesta_3 %>%
   scale_fill_brewer(palette = "Set2") +
   theme_minimal() +
   theme(legend.position = "bottom") +
-  scale_x_continuous(breaks = seq(min(Respuesta_3$year), max(Respuesta_3$year), by = 10), expand = c(0, 0)) 
+  scale_x_continuous(breaks = seq(min(respuesta_3$year), max(respuesta_3$year), by = 10), expand = c(0, 0)) 
 
 
 ```
+
+Los nombres de utilización mixta tienen un peso porcentual promedio a lo largo de la serie de `r promedio_prop`,
+con su pico en el año `r anio_mayor_prop` con un peso de `r mayor_prop`.
+En el último año tuverion un peso de `r prop_ultimo_anio`.
