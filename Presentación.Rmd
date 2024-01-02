@@ -1,0 +1,187 @@
+---
+title: "Presentación R Baselines"
+author: "Joaquin Gueler"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+
+## Librerias 
+
+# Tidyverse
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+# SQL
+library(DBI)
+library(odbc)
+
+## Datos 
+
+#install.packages("tidytuesdayR")
+# Either ISO-8601 date or year/week works!
+
+tuesdata <- tidytuesdayR::tt_load('2022-03-22')
+tuesdata <- tidytuesdayR::tt_load(2022, week = 12)
+
+babynames <- tuesdata$babynames
+
+```
+
+# Pequeño sobre el dataframte elegido 
+
+
+
+
+```{r cars}
+babynames %>% head(10)
+
+```
+
+```{r cars}
+# control de Na
+babynames %>%
+  summarise_all(~ sum(is.na(.)))
+
+```
+
+
+```{r cars}
+
+# Analisis columnas 
+babynames %>% 
+  summary(.)
+
+```
+
+
+# analisis de columnas tipo texto 
+```{r cars}
+babynames %>%
+  select_if(is.character) %>%
+  summarise_all(list(
+    unique_count = ~ n_distinct(.),
+    min_length =   ~ min(nchar(.)),
+    max_length =   ~ max(nchar(.)),
+    avg_length =   ~ mean(nchar(.), na.rm = TRUE)
+  ))  %>%
+  gather(Nombres_Columna, Valor, everything()) %>%
+  separate(Nombres_Columna, into = c("columna", "Estadística"), sep = "_", extra = "merge") %>%
+  spread(columna, Valor)
+
+
+
+```
+
+## Including Plots
+
+Ya habiendo realizado un sucinto analisis sobre las caracteristicas principales del dataframe babynames, me propongo contestar las siguentes preguntas:  
+
+1) Sin distinguir por sexo, cúal es el nombre con mayor peso proporcional al comienzo (1880) y al final(2017) de la serie ? 
+  Cómo evolucionaron esos nombres a lo largo del tiempo?  
+
+2) Cómo evoluionó a lo largo del tiempo la cantidad de nombres únicos utilizados por año?
+
+3) Si agrupamos los nombres en relación a si son utilizados de manera exclusiva por un sexo o no,cúal es el peso de proporcional de los nombres mixtos? cómo es su evolución a lo largo del tiempo? 
+
+
+
+```{r cars}
+
+
+table_name <- '#Baby_Names'
+
+table_estruc <- '(year int,
+                  sex  char(1),
+                  name varchar(15),
+                  n int,
+                  prop float)'
+
+
+con <- dbConnect(odbc::odbc(), "SQL Server ")
+
+# Crear la tabla temporal en SQL Server
+dbExecute(con, paste('create table',table_name,table_estruc),immediate = TRUE) 
+
+# Insertar datos en la tabla temporal desde babynames
+dbWriteTable(con, table_name, value = babynames, temporary = TRUE, overwrite = TRUE)
+
+dbGetQuery(con, paste("select top 10 * from ",table_name,"order by n desc"))
+
+
+```
+
+
+
+
+```{r pressure, echo=FALSE}
+
+
+
+
+
+
+Respuesta_1 <- 
+            dbGetQuery(con,
+                         
+                          " with total_anio as (
+                            
+                                
+                                  select 
+                                    ba.year
+                                   ,ba.name
+                                   ,ba.n
+                                   ,ba.n * 1.0 / t1.total as prop 
+                                  from (select year,name, sum(n) as n from #Baby_Names group by year,name) as ba
+                                  left join (select year,sum(n) as total from #Baby_Names group by year) as t1 
+                                  on t1.year = ba.year
+                        
+                                 ),
+                                nombre_mas_popular_extremos_ventana as (
+                                
+                                    select 
+                                      t1.* 
+                                    from (select top 1 * from total_anio order by year asc, prop desc) as t1
+                                   union 
+                                    select 
+                                      t2.* 
+                                    from (select top 1 * from total_anio order by year desc, prop desc) as t2
+                                 )
+                                 
+                                 select 
+                                    t.year
+                                   ,t.name
+                                   ,t.n
+                                   ,t.prop 
+                                 from total_anio as t
+                                 inner join nombre_mas_popular_extremos_ventana as n
+                                 on n.name = t.name; "
+                                 
+                       )
+            
+
+
+ggplot(Respuesta_1, aes(x = year, y = prop, group = name, color = name)) +
+  geom_line(size = 1) +  # Ajustar el grosor de la línea
+  ggtitle("Evolución del peso porcentual de nombres preponderantes") +
+  labs(x = "Año", y = "Proporción por Nombre",subtitle = "Utilzando como ejemplo el nombre más popular de cada extremo de la serie: de 1880 a 2017 ") +
+  scale_color_brewer(palette = "Set2") +  # Utilizar paleta de colores
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = seq(min(Respuesta_1$year), max(Respuesta_1$year), by = 10), expand = c(0, 0))
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
