@@ -15,7 +15,7 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r cars}
+```{r echo = FALSE, include = FALSE}
 
 ## Librerias 
 
@@ -34,42 +34,40 @@ library(odbc)
 #install.packages("tidytuesdayR")
 # Either ISO-8601 date or year/week works!
 
-tuesdata <- tidytuesdayR::tt_load('2022-03-22')
-tuesdata <- tidytuesdayR::tt_load(2022, week = 12)
+#tuesdata <- tidytuesdayR::tt_load('2022-03-22')
+#tuesdata <- tidytuesdayR::tt_load(2022, week = 12)
 
-babynames <- tuesdata$babynames
+#babynames <- tuesdata$babynames
 
 ```
 
-# Pequeño sobre el dataframte elegido 
+## Pequeño anailisi sobre el dataframte elegido 
 
 
 
 
-```{r cars}
+```{r}
 babynames %>% head(10)
 
 ```
 
-```{r cars}
+```{r}
 # control de Na
-babynames %>%
-  summarise_all(~ sum(is.na(.)))
+babynames %>% summarise_all(~ sum(is.na(.)))
 
 ```
 
 
-```{r cars}
+```{r }
 
 # Analisis columnas 
-babynames %>% 
-  summary(.)
+babynames %>%  summary(.)
 
 ```
 
 
-# analisis de columnas tipo texto 
-```{r cars}
+###+- analisis de columnas tipo texto 
+```{r}
 babynames %>%
   select_if(is.character) %>%
   summarise_all(list(
@@ -99,7 +97,7 @@ Ya habiendo realizado un sucinto analisis sobre las caracteristicas principales 
 
 
 
-```{r cars}
+```{r  results = "hide"}
 
 
 table_name <- '#Baby_Names'
@@ -119,20 +117,18 @@ dbExecute(con, paste('create table',table_name,table_estruc),immediate = TRUE)
 # Insertar datos en la tabla temporal desde babynames
 dbWriteTable(con, table_name, value = babynames, temporary = TRUE, overwrite = TRUE)
 
-dbGetQuery(con, paste("select top 10 * from ",table_name,"order by n desc"))
+
 
 
 ```
 
 
+```{r  results = "hide"}
+dbGetQuery(con, paste("select top 10 * from ",table_name,"order by n desc"))
 
+```
 
-```{r pressure, echo=FALSE}
-
-
-
-
-
+```{echo = TRUE, results = "hide"}
 
 Respuesta_1 <- 
             dbGetQuery(con,
@@ -173,15 +169,138 @@ Respuesta_1 <-
                        )
             
 
+```
 
-ggplot(Respuesta_1, aes(x = year, y = prop, group = name, color = name)) +
-  geom_line(size = 1) +  # Ajustar el grosor de la línea
+```{r respuesta_1, echo=FALSE}
+
+          
+
+Respuesta_1 %>% 
+  ggplot(aes(x = year, y = prop, group = name, color = name)) +
+  geom_line(size = 1) +  
   ggtitle("Evolución del peso porcentual de nombres preponderantes") +
-  labs(x = "Año", y = "Proporción por Nombre",subtitle = "Utilzando como ejemplo el nombre más popular de cada extremo de la serie: de 1880 a 2017 ") +
-  scale_color_brewer(palette = "Set2") +  # Utilizar paleta de colores
+  labs(
+      x = "Año",
+      y = "Proporción por Nombre",
+      subtitle = "Utilzando como ejemplo el nombre más popular de cada extremo de la serie: de 1880 a 2017 "
+      ) +
+  scale_color_brewer(palette = "Set2") +
   theme_minimal() +
   theme(legend.position = "bottom") +
   scale_x_continuous(breaks = seq(min(Respuesta_1$year), max(Respuesta_1$year), by = 10), expand = c(0, 0))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{echo = TRUE, results = "hide"}
+
+Respuesta_2 <- 
+              dbGetQuery(con, 
+                         " with cantidad_Nombre as (
+                                              
+                              select 
+                                 year
+                                ,count(distinct name) as Dist_Name_Nu    
+                              from #Baby_Names 
+                              group by year
+                              
+                              )
+                           select 
+                             year
+                            ,Dist_Name_Nu  
+                            ,avg(Dist_Name_Nu) over(order by year rows between 5 preceding and 5 following) as Promedio_Decada
+                           from cantidad_Nombre; "
+              
+                        )
+            
+
+```
+
+```{r respuesta_2, echo=FALSE}
+
+          
+Respuesta_2 %>% 
+pivot_longer(cols = c(Dist_Name_Nu, Promedio_Decada),
+            names_to = "variable",
+            values_to = "value") %>% 
+  ggplot(aes(x = year, y = value, color = variable)) +
+  geom_line(size = 1) + 
+  ggtitle("Gráfico de Líneas: Dist_Name_Nu vs Promedio_Lustro") +
+  labs(
+    x = "Año",
+    y = "Valor", 
+    color = "Variable"
+    ) +
+  scale_color_brewer(palette = "Set2") + 
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = seq(min(Respuesta_2$year), max(Respuesta_2$year), by = 10), expand = c(0, 0))
+```
+
+```{echo = TRUE, results = "hide"}
+
+Respuesta_3 <- 
+  dbGetQuery(con,   
+                  " with t1 as (
+                  
+                       select
+                         year
+                         ,name 
+                         ,sum(case when sex = 'F' then n else 0 end) as Femenino
+                         ,sum(case when sex = 'M' then n else 0 end) as Masculino
+                         ,sum(n) as Total 
+                       from #Baby_Names
+                       group by year,name
+                     
+                     ),
+                     tipo_de_nombres as (
+                     
+                      select 
+                          year
+                         ,case when Femenino = Total  then 'Femenino'
+                               when Masculino = Total then 'Masculino'
+                               else 'Mixto' end as Tipo_nombre
+                         ,count(*) as n 
+                       from t1
+                       group by year,
+                                case when Femenino = Total  then 'Femenino'
+                                     when Masculino = Total then 'Masculino'
+                                else 'Mixto' end
+                     
+                     ),
+                     nombre_unicos as ( 
+                     
+                         select 
+                            year
+                           ,count(distinct name) as dist_name_Nu    
+                         from #Baby_Names
+                         group by year
+                     )
+                     select
+                         tn.year 
+                        ,tn.Tipo_nombre
+                        ,tn.n * 1.0 / nu.dist_name_Nu as prop
+                     from tipo_de_nombres as tn
+                     inner join nombre_unicos as nu
+                     on nu.year = tn.year; "
+                
+  )
+
+```
+
+```{r respuesta_3, echo=FALSE}
+
+Respuesta_3 %>%           
+  ggplot(aes(x = year, y = prop, fill = Tipo_nombre)) +
+  geom_area(alpha = 0.7, color = "black") +
+  ggtitle("Evolución de Proporciones por Tipo de Nombre a lo largo del tiempo") +  
+  labs(
+    x = "Año",
+    y = "Proporción", 
+    fill = "Tipo de Nombre"
+    ) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = seq(min(Respuesta_3$year), max(Respuesta_3$year), by = 10), expand = c(0, 0)) 
+
+
+```
